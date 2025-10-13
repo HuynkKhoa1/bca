@@ -1,1 +1,42 @@
 loadstring(game:HttpGet("https://api.luarmor.net/files/v3/loaders/410937081a7cb1484a7a423165c3c7ee.lua"))()
+
+-- 🔄 Auto Hop nếu không thấy "x" (có check log cũ, ignore hoa/thường)
+
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local TeleportService = game:GetService("TeleportService")
+local LogService = game:GetService("LogService")
+
+local foundX = false
+
+-- Check log cũ trước khi hook
+for _, log in ipairs(LogService:GetLogHistory()) do
+    if string.lower(log.message) == "x" then
+        foundX = true
+        break
+    end
+end
+
+-- Nếu chưa thấy thì hook log mới
+local conn
+if not foundX then
+    conn = LogService.MessageOut:Connect(function(message, messageType)
+        if string.lower(message) == "x" then
+            foundX = true
+            if conn then conn:Disconnect() end
+        end
+    end)
+end
+
+-- Nếu vẫn chưa thấy => bắt đầu countdown
+if not foundX then
+    local timer = 30
+    for i = timer, 1, -1 do
+        if foundX then break end
+        task.wait(1)
+    end
+
+    if not foundX then
+        TeleportService:Teleport(game.PlaceId, player) -- hop server khác
+    end
+end
