@@ -1,1 +1,225 @@
-loadstring(game:HttpGet("https://api.luarmor.net/files/v3/loaders/410937081a7cb1484a7a423165c3c7ee.lua"))()
+-- 🛡️ Anti-AFK
+task.spawn(function()
+    local vu = game:GetService("VirtualUser")
+    game:GetService("Players").LocalPlayer.Idled:Connect(function()
+        vu:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+        task.wait(1)
+        vu:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+    end)
+end)
+
+-- 🛠 Auto Lobby Join & Server Hop (Stay if good, hop if crowded or blocked)
+local Http = game:GetService("HttpService")
+local TPS = game:GetService("TeleportService")
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+
+local LocalPlayer = Players.LocalPlayer
+local LOBBY_PLACE_ID = 18637069183 -- thay bằng placeId lobby thực tế
+local API = "https://games.roblox.com/v1/games/"
+
+-- ✅ Danh sách username cần tránh (cập nhật)
+local BlockedUsers = {
+    "HeroFlame98YT",
+    "CharlotteSaber201280",
+    "josephharris2002",
+    "LiertverE03L4",
+    "HzpBDPxBETz",
+    "Vict0riaNe0n2002YT",
+    "YadenRoda_50162",
+    "Flam3BlastShadow",
+    "Ethan_R0cket59",
+    "XxWillowMinerBlockxX",
+    "VinciTroge_6738",
+    "ADDIS0N_Fr0st2018",
+    "isle_Rogue",
+    "TheRealAidenmistQues",
+    "VCtNJzoEaVF",
+    "qJXWOrhkDzu",
+    "HairoUnlucky1",
+    "GraImBuren",
+    "sqkKweBWZdu",
+    "GrNWWWyDtUY",
+    "NoraCyberInferno2018",
+    "XxBlaz3HawkH3roxX",
+    "RiderInfern032",
+    "BaneStarPhoenix70",
+    "ez2Pm1xuP3",
+    "EzraReaper2022",
+    "ItsAndr3w_ONYX",
+    "ItsWaveoak",
+    "Mrshaze_misty2007",
+    "MRSKEN_Hawk",
+    "ninaFireVoid52",
+    "TheRealOliviaFlick20",
+    "11111111a436",
+    "33333a48",
+}
+
+-- 🆕 Blacklist JobId
+local BlacklistFile = "server_blacklist.json"
+local Blacklist = {}
+
+-- đọc file blacklist nếu có
+pcall(function()
+    if isfile and isfile(BlacklistFile) then
+        local content = readfile(BlacklistFile)
+        if content and content ~= "" then
+            Blacklist = Http:JSONDecode(content)
+        end
+    end
+end)
+
+local function SaveBlacklist()
+    if writefile then
+        writefile(BlacklistFile, Http:JSONEncode(Blacklist))
+    end
+end
+
+local function ResetBlacklist()
+    Blacklist = {}
+    SaveBlacklist()
+end
+
+-- Hàm lấy server list
+local function ListServers(place, cursor)
+    local url = API .. place .. "/servers/Public?sortOrder=Asc&limit=100" .. ((cursor and "&cursor="..cursor) or "")
+    local raw = game:HttpGet(url)
+    return Http:JSONDecode(raw)
+end
+
+-- 🆕 Hàm tìm server random trong top 30 server ít người nhất
+local function FindServer(place, maxPlayers)
+    local Next
+    local CandidateServers = {}
+    repeat
+        local Servers = ListServers(place, Next)
+        for _, srv in ipairs(Servers.data) do
+            if srv.playing <= maxPlayers and srv.id ~= game.JobId and not Blacklist[srv.id] then
+                table.insert(CandidateServers, srv)
+            end
+        end
+        Next = Servers.nextPageCursor
+        task.wait(0.1) -- tránh spam request
+    until not Next -- duyệt hết tất cả
+
+    if #CandidateServers > 0 then
+        table.sort(CandidateServers, function(a, b)
+            return a.playing < b.playing
+        end)
+
+        local TopServers = {}
+        for i = 1, math.min(30, #CandidateServers) do
+            table.insert(TopServers, CandidateServers[i])
+        end
+
+        local chosen = TopServers[math.random(1, #TopServers)]
+        print(string.format(
+            "[DEBUG] Found %d candidate servers. Picked server %s with %d/%d players.",
+            #CandidateServers, chosen.id, chosen.playing, chosen.maxPlayers
+        ))
+        return chosen
+    else
+        warn("[DEBUG] No suitable servers found!")
+        return nil
+    end
+end
+
+-- Hàm Teleport với retry
+local function SafeTeleport(place, serverId, cd)
+    task.spawn(function()
+        repeat
+            local success, err = pcall(function()
+                TPS:TeleportToPlaceInstance(place, serverId, LocalPlayer)
+            end)
+            if not success then warn("Teleport error:", err) end
+
+            local start = tick()
+            while tick() - start < 30 do
+                if game.PlaceId ~= place or game.JobId == serverId then
+                    return -- đã TP xong
+                end
+                task.wait(1)
+            end
+
+            task.wait(cd or 1)
+        until false
+    end)
+end
+
+-- 🆕 Check user tránh
+local function ContainsBlockedUser()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            for _, badName in ipairs(BlockedUsers) do
+                if plr.Name == badName then
+                    print("[DEBUG] Found blocked user in server:", badName)
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
+-- 🆕 Flag để biết đã ở server safe chưa
+local InSafeServer = false
+
+-- 🆕 Hàm giám sát server hiện tại
+local function MonitorServer()
+    while task.wait(10) do
+        if InSafeServer then
+            -- Đang trong server safe -> bỏ qua check (kể cả blocked user join vào)
+            -- Chỉ in log để biết
+            local count = #Players:GetPlayers()
+            print("[DEBUG] Safe server: "..count.." players. No hopping even if blocked user joins.")
+        else
+            local count = #Players:GetPlayers()
+            if count > 50 then
+                print("[DEBUG] Server too crowded ("..count.." players). Hopping...")
+                local s = FindServer(LOBBY_PLACE_ID, 50)
+                if s then SafeTeleport(LOBBY_PLACE_ID, s.id, 3) end
+                break
+            elseif ContainsBlockedUser() then
+                print("[DEBUG] Blocked user detected. Adding to blacklist and hopping...")
+                Blacklist[game.JobId] = true
+                SaveBlacklist()
+                local s = FindServer(LOBBY_PLACE_ID, 50)
+                if s then SafeTeleport(LOBBY_PLACE_ID, s.id, 3) end
+                break
+            else
+                -- server an toàn chưa có blocked user -> reset blacklist & flag
+                print("[DEBUG] Server became safe. Resetting blacklist.")
+                ResetBlacklist()
+                InSafeServer = true
+            end
+        end
+    end
+end
+
+-- Main Logic
+if game.PlaceId ~= LOBBY_PLACE_ID then
+    print("[DEBUG] Not in lobby. Teleporting to lobby...")
+    local remotes = RS:WaitForChild("Remotes")
+    pcall(function() remotes:WaitForChild("ChooseSlot"):InvokeServer("A", "Matchmaking") end)
+    pcall(function() remotes:WaitForChild("Teleport"):InvokeServer({ teleportTo = "Matchmaking" }) end)
+    pcall(function() TPS:Teleport(LOBBY_PLACE_ID, LocalPlayer) end)
+else
+    print("[DEBUG] In lobby. Checking conditions...")
+    if ContainsBlockedUser() then
+        print("[DEBUG] Immediate hop: blocked user present.")
+        Blacklist[game.JobId] = true
+        SaveBlacklist()
+        local s = FindServer(LOBBY_PLACE_ID, 50)
+        if s then SafeTeleport(LOBBY_PLACE_ID, s.id, 3) end
+    elseif #Players:GetPlayers() > 50 then
+        print("[DEBUG] Immediate hop: server too crowded ("..#Players:GetPlayers().." players).")
+        local s = FindServer(LOBBY_PLACE_ID, 50)
+        if s then SafeTeleport(LOBBY_PLACE_ID, s.id, 3) end
+    else
+        print("[DEBUG] Server is safe. Resetting blacklist & starting monitor loop.")
+        ResetBlacklist()
+        InSafeServer = true -- đánh dấu đang trong server safe
+        task.spawn(MonitorServer)
+    end
+end
