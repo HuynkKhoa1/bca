@@ -18,12 +18,13 @@ local LocalPlayer = Players.LocalPlayer
 local LOBBY_PLACE_ID = 18637069183 -- thay bằng placeId lobby thực tế
 local API = "https://games.roblox.com/v1/games/"
 
--- ✅ Danh sách username cần tránh (cập nhật)
+-- ✅ Danh sách username cần tránh (cập nhật đầy đủ)
 local BlockedUsers = {
     "HeroFlame98YT",
     "CharlotteSaber201280",
     "josephharris2002",
     "LiertverE03L4",
+    "KnightOrbitCookie202",
     "HzpBDPxBETz",
     "Vict0riaNe0n2002YT",
     "YadenRoda_50162",
@@ -48,6 +49,7 @@ local BlockedUsers = {
     "EzraReaper2022",
     "ItsAndr3w_ONYX",
     "ItsWaveoak",
+    "ItsTina_Wraith",
     "Mrshaze_misty2007",
     "MRSKEN_Hawk",
     "ninaFireVoid52",
@@ -55,6 +57,7 @@ local BlockedUsers = {
     "11111111a436",
     "33333a48",
 }
+
 
 -- 🆕 Blacklist JobId
 local BlacklistFile = "server_blacklist.json"
